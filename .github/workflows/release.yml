@@ -1,0 +1,124 @@
+name: Release Workflow
+
+on:
+  workflow_dispatch:
+
+permissions:
+  issues: write
+  contents: write
+
+env:
+  RELEASE_VERSION: ${{ github.run_number }}
+  YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
+  YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
+
+jobs:
+  lint-and-test:
+    uses: ./.github/workflows/lint-and-test.yml
+
+  create-release-branch:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up Git user
+        run: |
+          git config user.name "${{ github.event.sender.login }}"
+          git config user.email "${{ github.event.sender.login }}@users.noreply.github.com"
+
+      - name: Create Release Branch
+        run: |
+          git checkout -b releases/${RELEASE_VERSION}
+          git push origin releases/${RELEASE_VERSION}
+
+  build-and-push-docker-image:
+    needs: create-release-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_VERSION }}
+
+      - name: Log in to YCR
+        run: echo "${{ secrets.YCR_TOKEN }}" | docker login --username oauth --password-stdin cr.yandex
+
+      - name: Build Docker image
+        run: |
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          docker build -t $IMAGE_NAME -t $IMAGE_LATEST .
+
+      - name: Push Docker image to YCR
+        run: |
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          docker push $IMAGE_NAME
+          docker push $IMAGE_LATEST
+
+  update-changelog-and-tag:
+    needs: create-release-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Set up Git user
+        run: |
+          git config user.name "${{ github.event.sender.login }}"
+          git config user.email "${{ github.event.sender.login }}@users.noreply.github.com"
+
+      - name: Update CHANGELOG.md
+        run: |
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMIT_LIST=$(git log --oneline | sed 's/^/- /')
+          else
+            COMMIT_LIST=$(git log $PREV_TAG..HEAD --oneline | sed 's/^/- /')
+          fi
+          NEW_SECTION="# ${RELEASE_VERSION}\n\n${COMMIT_LIST}\n\n"
+          [ -f CHANGELOG.md ] || touch CHANGELOG.md
+          echo -e "${NEW_SECTION}$(cat CHANGELOG.md)" > CHANGELOG.md
+          git add CHANGELOG.md
+          git commit -m "docs: update CHANGELOG for release ${RELEASE_VERSION}"
+          git push origin main
+
+      - name: Create Tag
+        run: |
+          git tag ${RELEASE_VERSION}
+          git push origin ${RELEASE_VERSION}
+
+  create-release-issue:
+    needs: update-changelog-and-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true 
+
+      - name: Create Release Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.actor }}
+        run: |
+          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
+          PREV_TAG=$(git describe --tags --abbrev=0 ${RELEASE_VERSION}^ 2>/dev/null || echo "")
+          if [ -z "$PREV_TAG" ]; then
+            COMMIT_LIST=$(git log --oneline | sed 's/^/- /')
+          else
+            COMMIT_LIST=$(git log ${PREV_TAG}..${RELEASE_VERSION} --oneline | sed 's/^/- /')
+          fi
+          BODY=$(printf "## Информация о релизе\n\n**Дата:** %s\n**Автор:** %s\n**Версия:** %s\n\n**Коммиты:**\n%s\n\n**Docker:** \`%s/app:%s\`\n" \
+            "$DATE" "$AUTHOR" "$RELEASE_VERSION" "$COMMIT_LIST" "$YCR_REGISTRY_ID" "$RELEASE_VERSION")
+          gh issue create \
+            --title "Release $RELEASE_VERSION" \
+            --body "$BODY"
