@@ -14,7 +14,7 @@ env:
 
 jobs:
   lint-and-test:
-    uses: ./.github/workflows/lint-and-test.yml
+    uses: ./.github/workflows/pr-check.yml
 
   create-release-branch:
     needs: lint-and-test
