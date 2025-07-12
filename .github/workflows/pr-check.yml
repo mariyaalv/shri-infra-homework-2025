@@ -3,7 +3,6 @@ name: PR Workflow
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_call:
 
 jobs:
   lint:

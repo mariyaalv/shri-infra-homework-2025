@@ -14,7 +14,18 @@ env:
 
 jobs:
   lint-and-test:
-    uses: ./.github/workflows/pr-check.yml
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm ci 
+      - run: npm run lint
+      - run: npm run test
 
   create-release-branch:
     needs: lint-and-test
