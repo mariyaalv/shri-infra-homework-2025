@@ -1,3 +1,8 @@
+# 3
+
+- 109696f Merge pull request #4 from mariyaalv/test-pr-workflow
+- 5f6cfc4 Исправление сканирования докер-образа
+
 # 2
 
 
