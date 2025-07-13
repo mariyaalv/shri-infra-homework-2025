@@ -9,9 +9,9 @@ on:
         type: string
 
 env:
-  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
   YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
   YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
+  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
 
 jobs:
   checkout-release-branch:
@@ -21,7 +21,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
   lint-and-test:
@@ -73,6 +72,8 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
       - name: Create Fix Tag
@@ -92,21 +93,51 @@ jobs:
           fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
-      - name: Set DATE
-        run: echo "DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          git fetch --tags
+          
+          PREV_TAG=$(git tag --list "v${RELEASE_VERSION}_fix*" | sort -V | grep -v "v${RELEASE_VERSION}_fix${{ github.run_number }}" | tail -1)
+          
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 --match "v${RELEASE_VERSION}" 2>/dev/null) || PREV_TAG=""
+          fi
+          
+          echo "Selected previous_tag: $PREV_TAG"
+          echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
+      - name: Get commit list
+        run: |
+          PREV_TAG="${{ steps.prev_tag.outputs.previous_tag }}"
+          
+          echo "**Commits since \`$PREV_TAG\`:**" > commits.txt
+          
+          if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
+            git log --pretty=format:"- %h %s" "$PREV_TAG"..HEAD >> commits.txt || echo "No commits found." >> commits.txt
+          else
+            echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since the branch start." >> commits.txt
+            git log --pretty=format:"- %h %s" >> commits.txt
+          fi
+          
+          cat commits.txt
 
       - name: Create Fix Issue Comment
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FIX_NUM: ${{ github.run_number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHOR: ${{ github.actor }}
-          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-          DATE: ${{ env.DATE }}
-          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
-          ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release v'"${RELEASE_VERSION}"'") | .number' | head -n 1)
+          FIX_NUM=${{ github.run_number }}
+          
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | test(".*Release.*v?('"${RELEASE_VERSION}"')"; "i")) | .number' | head -n 1)
+          
           if [ -z "$ISSUE_NUMBER" ]; then
-            echo "No matching issue found for Release v${RELEASE_VERSION}, skipping comment."
-            exit 0
+            echo "Issue с названием 'Release ${RELEASE_VERSION}' не найден"
+            exit 1
           fi
-          gh issue comment $ISSUE_NUMBER --body "Fix #${FIX_NUM} for Release **v${RELEASE_VERSION}**\n- Date: ${DATE}\n- Author: @${AUTHOR}\n- Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`"
+          
+          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "$(cat commits.txt)")
+          
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
