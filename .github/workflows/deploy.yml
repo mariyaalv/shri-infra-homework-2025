@@ -37,5 +37,5 @@ jobs:
         run: |
           DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
           ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release $VERSION" --json number --jq '.[0].number')
-          gh issue comment "$ISSUE_NUMBER" \
-            --body "Release **$VERSION** deployed to production\n $DATE\n By @$AUTHOR"
+          BODY=$(printf "Release **%s** deployed to production\n %s\n By @%s\n" "$VERSION" "$DATE" "$AUTHOR")
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
