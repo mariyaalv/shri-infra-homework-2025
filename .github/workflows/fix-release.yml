@@ -114,7 +114,9 @@ jobs:
           FIX="$FIX_NUM"
           DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-          ISSUE_NUMBER=$(gh issue list --label release --search "Release ${VERSION}" --json number --jq '.[0].number')
+          ISSUE_NUMBER=$(gh issue list --label release --json number,title \
+            --jq '.[] | select(.title == "Release '"${VERSION}"'") | .number' | head -n 1)
+
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "Issue для релиза ${VERSION} не найдено"
             exit 1
