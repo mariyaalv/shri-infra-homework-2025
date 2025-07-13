@@ -68,7 +68,7 @@ jobs:
           docker push $IMAGE_NAME
           docker push $IMAGE_LATEST
 
-    create-fix-tag and comment to Issue:
+  create-fix-tag and comment to Issue:
     needs: build-and-push-docker-image
     runs-on: ubuntu-latest
     env:
