@@ -1,0 +1,41 @@
+name: DEPLOY Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version"
+        required: true
+        type: string
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy Docker Image to VM
+        uses: appleboy/ssh-action@v1.0.0
+        with: 
+          host: ${{secrets.SSH_HOST }}
+          username: ${{ secrets.USER }}
+          key: ${{ secrets.SSH_KEY }}
+          script: |
+            echo "${{ secrets.YCR_TOKEN }}" | docker login --username oauth --password-stdin cr.yandex
+            IMAGE_NAME="${{ secrets.YCR_ID }}/app:${{ github.event.inputs.release_version }}_latest"
+            docker pull $IMAGE_NAME
+            docker stop shri-infra || true
+            docker rm shri-infra || true
+            docker run -d --name shri-infra -p 80:3000 $IMAGE_NAME
+
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Comment to Issue
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          AUTHOR: ${{ github.actor }}
+          VERSION: ${{ github.event.inputs.release_version }}
+        run: |
+          DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
+          ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release $VERSION" --json number --jq '.[0].number')
+          BODY=$(printf "Release **%s** deployed to production\n %s\n By @%s\n" "$VERSION" "$DATE" "$AUTHOR")
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
