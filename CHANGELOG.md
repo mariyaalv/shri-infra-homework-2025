@@ -1,3 +1,11 @@
+# 8
+
+- dc04700 Merge pull request #43 from mariyaalv/releases/7
+- 01cfee5 Merge pull request #42 from mariyaalv/releases/7
+- 8ec9e5a Merge pull request #41 from mariyaalv/releases/7
+- 9e3d1e1 Merge pull request #40 from mariyaalv/releases/7
+- 7264887 Merge pull request #39 from mariyaalv/releases/7
+
 # 7
 
 - 4092aa6 Merge pull request #14 from mariyaalv/workflow/fix-release
