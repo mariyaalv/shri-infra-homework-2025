@@ -104,14 +104,9 @@ jobs:
           DATE: ${{ env.DATE }}
           YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
-            ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release '"${RELEASE_VERSION}"'") | .number' | head -n 1)
-            if [ -z "$ISSUE_NUMBER" ]; then
-              echo "No matching issue found for Release ${RELEASE_VERSION}, skipping comment."
-              exit 0
-            fi
-            gh issue comment $ISSUE_NUMBER --body <<EOF
-            Fix #${FIX_NUM} for Release **${RELEASE_VERSION}**
-            - Дата: ${DATE}
-            - Автор: @${AUTHOR}
-            - Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`
-            EOF
+          ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release '"${RELEASE_VERSION}"'") | .number' | head -n 1)
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No matching issue found for Release ${RELEASE_VERSION}, skipping comment."
+            exit 0
+          fi
+          gh issue comment $ISSUE_NUMBER --body $"Fix #${FIX_NUM} for Release **${RELEASE_VERSION}**\n- Дата: ${DATE}\n- Автор: @${AUTHOR}\n- Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`"
