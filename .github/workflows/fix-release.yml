@@ -125,8 +125,6 @@ jobs:
           cat commits.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
-
-
       - name: Create Fix Issue Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
