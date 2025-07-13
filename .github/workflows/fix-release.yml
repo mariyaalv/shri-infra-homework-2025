@@ -108,6 +108,7 @@ jobs:
           echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Get commit list
+        id: commits
         run: |
           PREV_TAG="${{ steps.prev_tag.outputs.previous_tag }}"
           
@@ -119,8 +120,11 @@ jobs:
             echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since the branch start." >> commits.txt
             git log --pretty=format:"- %h %s" >> commits.txt
           fi
-          
-          cat commits.txt
+
+          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          cat commits.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
 
       - name: Create Fix Issue Comment
         env:
@@ -138,6 +142,6 @@ jobs:
           fi
           
           BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "$(cat commits.txt)")
-          
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "${{ steps.commits.outputs.commits }}")
+
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
