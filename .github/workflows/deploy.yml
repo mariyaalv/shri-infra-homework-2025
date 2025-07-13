@@ -33,12 +33,6 @@ jobs:
           VERSION: ${{ github.event.inputs.release_version }}
         run: |
           DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
-          ISSUE_NUMBER=$(gh issue list --limit 100 --json number,title \
-            --jq '.[] | select(.title == "Release v'"$VERSION"'" or .title == "Release '"$VERSION"'") | .number' \
-            | head -n 1)
-
-          if [ -n "$ISSUE_NUMBER" ]; then
-            gh issue comment "$ISSUE_NUMBER" --body "Release **v$VERSION** deployed to production\n $DATE\n By @$AUTHOR"
-          else
-            echo "Issue for Release $VERSION not found, skipping comment."
-          fi
+          ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release $VERSION" --json number --jq '.[0].number')
+          gh issue comment "$ISSUE_NUMBER" \
+            --body "Release **$VERSION** deployed to production\n $DATE\n By @$AUTHOR"
