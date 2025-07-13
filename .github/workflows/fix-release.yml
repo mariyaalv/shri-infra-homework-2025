@@ -21,7 +21,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
   lint-and-test:
@@ -30,8 +29,6 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          ref: releases/${{ github.event.inputs.release_version }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -68,12 +65,24 @@ jobs:
           docker push $IMAGE_NAME
           docker push $IMAGE_LATEST
 
-  create-fix-tag and comment to Issue:
+  create-fix-tag:
     needs: build-and-push-docker-image
     runs-on: ubuntu-latest
-    env:
-      FIX_NUMBER: ${{ github.run_number }}
-      CONTAINER_RIGISTRY: ${{ env.YCR_REGISTRY_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: releases/${{ github.event.inputs.release_version }}
+
+      - name: Create Fix Tag
+        run: |
+          FIX_NUM=${{ github.run_number }}
+          git tag v${RELEASE_VERSION}_fix${FIX_NUM}
+          git push origin v${RELEASE_VERSION}_fix${FIX_NUM}
+
+  create-fix-issue:
+    needs: create-fix-tag
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -82,45 +91,35 @@ jobs:
           fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
-      - name: Get Previous Fix Tag
-        id: prev_fix_tag
+      - name: Get previous tag
+        id: prev_tag
         run: |
-          TAG=$(git tag --list "${RELEASE_VERSION}_fix*" --sort=-creatordate | head -n 1)
-          echo "prev_fix_tag=$TAG" >> $GITHUB_OUTPUT
+          git fetch --tags
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "v${{ env.VERSION }}*" --exclude "v${{ env.VERSION }}_${{ env.FIX }}" 2>/dev/null || echo "v${{ env.VERSION }}")
+          echo "previous_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
 
-      - name: Generate commit history
-        id: commit_history
+      - name: Get commit list
         run: |
-          if [ -n "${{ steps.prev_fix_tag.outputs.prev_fix_tag }}" ]; then
-            COMMITS=$(git log --pretty=format:"- %s (%h)" ${{ steps.prev_fix_tag.outputs.prev_fix_tag }}..HEAD)
-          else
-            COMMITS=$(git log --pretty=format:"- %s (%h)" ${RELEASE_VERSION}..HEAD)
-          fi
-          echo "COMMIT_HISTORY<<EOF" >> $GITHUB_ENV
-          echo "$COMMITS" >> $GITHUB_ENV
-          echo "EOF" >> $GITHUB_ENV
+          echo "**Commits since \`${{ steps.prev_tag.outputs.tag }}\`:**" > commits.txt
+          git log ${{ steps.prev_tag.outputs.tag }}..HEAD --oneline >> commits.txt || echo "No new commits" >> commits.txt
 
-      - name: Create Fix Tag
-        run: |
-          git config user.name "github-actions"
-          git config user.email "actions@github.com"
-          git tag ${RELEASE_VERSION}_fix${FIX_NUMBER}
-          git push origin ${RELEASE_VERSION}_fix${FIX_NUMBER}
-
-      - name: Comment to Issue
+      - name: Create Fix Issue Comment
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FIX_NUM: ${{ github.run_number }}
+          AUTHOR: ${{ github.actor }}
+          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
-          TZ="Europe/Moscow"
-          export TZ
+          VERSION="${{ env.RELEASE_VERSION }}"
+          FIX="$FIX_NUM"
+          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
 
-          ISSUE_NUMBER=$(gh issue list --search "Release ${RELEASE_VERSION}" --json number --jq '.[0].number')
-          COMMENT_BODY=$(printf "📅 Дата фикса: %s\n👤 Автор: %s\n🐳 Docker: cr.yandex/%s/app:%s_fix%s\n\n📌 Коммиты:\n%s" \
-            "$(date +'%Y-%m-%d %H:%M:%S')" \
-            "${{ github.actor }}" \
-            "${{ env.CONTAINER_RIGISTRY }}" \
-            "${RELEASE_VERSION}" \
-            "${FIX_NUMBER}" \
-            "${{ env.COMMIT_HISTORY }}")
+          ISSUE_NUMBER=$(gh issue list --label release --search "Release ${VERSION}" --json number --jq '.[0].number')
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "Issue для релиза ${VERSION} не найдено"
+            exit 1
+          fi
 
-          gh issue comment "$ISSUE_NUMBER" --body "$COMMENT_BODY"
+          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s:%s_fix%s\`\n\n%s" \
+            "$FIX" "$VERSION" "$DATE" "$AUTHOR" "$YCR_REGISTRY_ID" "$VERSION" "$FIX" "$(cat commits.txt)")
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
