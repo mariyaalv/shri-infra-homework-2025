@@ -78,7 +78,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          ref: main
           fetch-depth: 0
 
       - name: Set up Git user
@@ -99,7 +98,7 @@ jobs:
           echo -e "${NEW_SECTION}$(cat CHANGELOG.md)" > CHANGELOG.md
           git add CHANGELOG.md
           git commit -m "docs: update CHANGELOG for release ${RELEASE_VERSION}"
-          git push origin main
+          git push origin HEAD
 
       - name: Create Tag
         run: |
