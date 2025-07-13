@@ -9,7 +9,6 @@ on:
         type: string
 
 env:
-  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
   YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
   YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
 
@@ -54,14 +53,14 @@ jobs:
 
       - name: Build Docker image
         run: |
-          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${{ github.run_number }}"
-          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${{ github.event.inputs.release_version }}_fix${{ github.run_number }}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${{ github.event.inputs.release_version }}_latest"
           docker build -t $IMAGE_NAME -t $IMAGE_LATEST .
 
       - name: Push Docker image to YCR
         run: |
-          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${{ github.run_number }}"
-          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${{ github.event.inputs.release_version }}_fix${{ github.run_number }}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${{ github.event.inputs.release_version }}_latest"
           docker push $IMAGE_NAME
           docker push $IMAGE_LATEST
 
@@ -77,8 +76,8 @@ jobs:
       - name: Create Fix Tag
         run: |
           FIX_NUM=${{ github.run_number }}
-          git tag v${RELEASE_VERSION}_fix${FIX_NUM}
-          git push origin v${RELEASE_VERSION}_fix${FIX_NUM}
+          git tag v${{ github.event.inputs.release_version }}_fix${FIX_NUM}
+          git push origin v${{ github.event.inputs.release_version }}_fix${FIX_NUM}
 
   create-fix-issue:
     needs: create-fix-tag
@@ -95,33 +94,37 @@ jobs:
         id: prev_tag
         run: |
           git fetch --tags
-          PREV_TAG=$(git describe --tags --abbrev=0 --match "v${{ env.VERSION }}*" --exclude "v${{ env.VERSION }}_${{ env.FIX }}" 2>/dev/null || echo "v${{ env.VERSION }}")
-          echo "previous_tag=${PREV_TAG}" >> $GITHUB_OUTPUT
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "v${{ github.event.inputs.release_version }}*" --exclude "v${{ github.event.inputs.release_version }}_fix*" 2>/dev/null) || true
+          PREV_TAG=$(git describe --tags --abbrev=0 --match "(v)?${{ github.event.inputs.release_version }}*" --exclude "v${{ github.event.inputs.release_version }}_fix*" 2>/dev/null || echo "v${{ github.event.inputs.release_version }}")
+          echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
+
 
       - name: Get commit list
         run: |
           echo "**Commits since \`${{ steps.prev_tag.outputs.tag }}\`:**" > commits.txt
-          git log ${{ steps.prev_tag.outputs.tag }}..HEAD --oneline >> commits.txt || echo "No new commits" >> commits.txt
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG=$(git describe --tags --abbrev=0 --match "${{ github.event.inputs.release_version }}*" --exclude "${{ github.event.inputs.release_version }}_fix*" 2>/dev/null) || true
+          fi
+          if [ -z "$PREV_TAG" ]; then
+            PREV_TAG="v${{ github.event.inputs.release_version }}"
+          fi
+          echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Create Fix Issue Comment
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FIX_NUM: ${{ github.run_number }}
           AUTHOR: ${{ github.actor }}
-          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
-          VERSION="${{ env.RELEASE_VERSION }}"
-          FIX="$FIX_NUM"
-          DATE=$(date -u +"%Y-%m-%d %H:%M:%S UTC")
-
-          ISSUE_NUMBER=$(gh issue list --label release --json number,title \
-            --jq '.[] | select(.title == "Release '"${VERSION}"'") | .number' | head -n 1)
-
+          ISSUE_NUMBER=$(gh issue list --json number,title \
+            --jq '.[] | select(.title | test("Release ?v?'${RELEASE_VERSION}'$")) | .number' | head -n 1)
+  
           if [ -z "$ISSUE_NUMBER" ]; then
-            echo "Issue для релиза ${VERSION} не найдено"
+            echo "Issue с названием 'Release ${RELEASE_VERSION}' не найден"
             exit 1
           fi
 
-          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s:%s_fix%s\`\n\n%s" \
-            "$FIX" "$VERSION" "$DATE" "$AUTHOR" "$YCR_REGISTRY_ID" "$VERSION" "$FIX" "$(cat commits.txt)")
+          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "$(cat commits.txt)")
+
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
