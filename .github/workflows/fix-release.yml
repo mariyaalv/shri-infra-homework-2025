@@ -7,10 +7,6 @@ on:
         description: "Release version"
         required: true
         type: string
-      issue_number:
-        description: "Issue number for the fix comment"
-        required: true
-        type: number
 
 env:
   RELEASE_VERSION: ${{ github.event.inputs.release_version }}
@@ -104,7 +100,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FIX_NUM: ${{ github.run_number }}
           AUTHOR: ${{ github.actor }}
-          ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
           DATE: ${{ env.DATE }}
         run: |
           PREV_TAG=$(git tag --sort=-creatordate | grep -E "^v${RELEASE_VERSION}(_fix[0-9]+)?$" | grep -v "_fix${FIX_NUM}$" | head -n 1)
@@ -119,5 +114,7 @@ jobs:
 
           BODY=$(printf "## Fix к релизу %s\n\n**Дата:** %s\n**Автор:** %s\n\n**Коммиты с %s:**\n%s\n\n**Docker:** \`%s\`\n" \
             "$RELEASE_VERSION" "$DATE" "$AUTHOR" "${PREV_TAG:-начала истории}" "$COMMIT_LIST" "$IMAGE_URL")
+
+          ISSUE_NUMBER=$(gh issue list --search "Release v${RELEASE_VERSION}" --json number --jq '.[0].number')
 
           gh issue comment $ISSUE_NUMBER --body "$BODY"
