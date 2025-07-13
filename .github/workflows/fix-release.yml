@@ -110,7 +110,17 @@ jobs:
             exit 0
           fi
 
-          BODY=$(printf "Fix #%s for Release **%s**\n- Дата: %s\n- Автор: @%s\n- Docker Image: \`%s/app:%s_fix%s\`\n" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$DATE" "$AUTHOR" "$YCR_REGISTRY_ID" "$RELEASE_VERSION" "$FIX_NUM")
+          PREV_TAG=$(git tag --sort=-creatordate | grep -E "^(v)?${RELEASE_VERSION}(_fix[0-9]+)?$" | grep -v "fix${FIX_NUM}$" | head -n 1)
+
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, showing all commits"
+            COMMIT_LIST=$(git log --pretty=format:"- %s (@%an)" -n 10)
+          else
+            echo "Previous tag found: $PREV_TAG"
+            COMMIT_LIST=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (@%an)" -n 10)
+          fi
+
+          BODY=$(printf "Fix #%s for Release **%s**\n- Дата: %s\n- Автор: @%s\n- Docker Image: \`%s/app:%s_fix%s\`\n\n**Коммиты:**\n%s\n" \
+            "$FIX_NUM" "$RELEASE_VERSION" "$DATE" "$AUTHOR" "$YCR_REGISTRY_ID" "$RELEASE_VERSION" "$FIX_NUM" "$COMMIT_LIST")
 
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
