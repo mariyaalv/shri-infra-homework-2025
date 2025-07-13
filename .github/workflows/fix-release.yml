@@ -75,17 +75,23 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
+          fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
       - name: Create Fix Tag
         run: |
           FIX_NUM=${{ github.run_number }}
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
           git tag v${RELEASE_VERSION}_fix${FIX_NUM}
           git push origin v${RELEASE_VERSION}_fix${FIX_NUM}
 
-  create-fix-issue:
+  get-previous-tag:
     needs: create-fix-tag
     runs-on: ubuntu-latest
+    outputs:
+      prev_tag: ${{ steps.get_prev_tag.outputs.tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -95,36 +101,65 @@ jobs:
           ref: releases/${{ github.event.inputs.release_version }}
 
       - name: Get previous tag
-        id: prev_tag
+        id: get_prev_tag
         run: |
           git fetch --tags
           PREV=$(git tag --sort=-creatordate | grep -E "^(v)?${RELEASE_VERSION}(_fix[0-9]+)?$" | head -n 2 | tail -n 1 || echo "")
           echo "tag=$PREV" >> $GITHUB_OUTPUT
+  
+  get-commit-list:
+    needs: get-previous-tag
+    runs-on: ubuntu-latest
+    outputs:
+      commit_list: ${{ steps.commit_list.outputs.commits }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: releases/${{ github.event.inputs.release_version }}
 
-      - name: Get commit list
+      - name: Generate commit list since previous tag
+        id: commit_list
         run: |
-          if [ -z "${{ steps.prev_tag.outputs.tag }}" ]; then
-            echo "**Commits (all since beginning):**" > commits.txt
-            git log --oneline >> commits.txt || echo "No commits" >> commits.txt
+          PREV_TAG=${{ needs.get-previous-tag.outputs.prev_tag }}
+          if [ -z "$PREV_TAG" ]; then
+            echo "No previous tag found, listing all commits"
+            git log --oneline > commits.txt
           else
-            echo "**Commits since \`${{ steps.prev_tag.outputs.tag }}\`:**" > commits.txt
-            git log ${{ steps.prev_tag.outputs.tag }}..HEAD --oneline >> commits.txt || echo "No new commits" >> commits.txt
+            echo "Listing commits since $PREV_TAG"
+            git log $PREV_TAG..HEAD --oneline > commits.txt
           fi
+          # Make markdown formatted commit list
+          echo "**Commits since \`$PREV_TAG\`:**" > formatted_commits.txt
+          cat commits.txt >> formatted_commits.txt
+          # Save output for next job
+          echo "::set-output name=commits::$(cat formatted_commits.txt)"
 
-      - name: Create or Comment on GitHub Issue
+  comment-on-issue:
+    needs: [get-commit-list, build-and-push-docker-image]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code (for gh CLI)
+        uses: actions/checkout@v4
+
+      - name: Comment on GitHub issue with fix info
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FIX_NUM: ${{ steps.fix_number.outputs.fix_number || github.run_number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHOR: ${{ github.actor }}
-          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
-          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
+          VERSION: ${{ github.event.inputs.release_version }}
+          REGISTRY: ${{ secrets.YCR_ID }}
+          FIX_NUMBER: ${{ github.run_number }}
+          COMMIT_LIST: ${{ needs.get-commit-list.outputs.commit_list }}
         run: |
-          ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release ${RELEASE_VERSION} in:title" --json number --jq '.[0].number' || echo "")
-          if [ -n "$ISSUE_NUMBER" ]; then
-            gh issue comment "$ISSUE_NUMBER" \
-              --body "$(echo -e "Fix \`#${FIX_NUM}\` for Release **${RELEASE_VERSION}**\n Date: $(date -u)\n Author: @${AUTHOR}\n Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`\n\n"; cat commits.txt)"
-          else
-            gh issue create \
-              --title "Release ${RELEASE_VERSION}" \
-              --body "$(echo -e "Fix \`#${FIX_NUM}\` for Release **${RELEASE_VERSION}**\n Date: $(date -u)\n Author: @${AUTHOR}\n Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`\n\n"; cat commits.txt)"
+          ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release $VERSION" --json number --jq '.[0].number' || echo "")
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No matching issue found for Release $VERSION, skipping comment."
+            exit 0
           fi
+
+          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n📅 Date: %s\n👤 Author: @%s\n🐳 Docker Image: `%s/app:%s_fix%s`\n\n%s\n" \
+            "$FIX_NUMBER" "$VERSION" "$(date -u +"%Y-%m-%d %H:%M UTC")" "$AUTHOR" "$REGISTRY" "$VERSION" "$FIX_NUMBER" "$COMMIT_LIST")
+
+          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
