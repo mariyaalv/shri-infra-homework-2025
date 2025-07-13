@@ -26,6 +26,34 @@ jobs:
   lint-and-test:
     needs: checkout-release-branch
     runs-on: ubuntu-latest
+name: Fix-release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version"
+        required: true
+        type: string
+
+env:
+  YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
+  YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
+  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+
+jobs:
+  checkout-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: releases/${{ github.event.inputs.release_version }}
+
+  lint-and-test:
+    needs: checkout-release-branch
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -111,13 +139,13 @@ jobs:
         id: commits
         run: |
           PREV_TAG="${{ steps.prev_tag.outputs.previous_tag }}"
-
+          
           echo "**Commits since \`$PREV_TAG\`:**" > commits.txt
-
+          
           if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
             git log --pretty=format:"- %h %s" "$PREV_TAG"..HEAD >> commits.txt || echo "No commits found." >> commits.txt
           else
-            echo "Previous tag $PREV_TAG not found. Showing all commits since branch start." >> commits.txt
+            echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since the branch start." >> commits.txt
             git log --pretty=format:"- %h %s" >> commits.txt
           fi
 
@@ -125,23 +153,23 @@ jobs:
           cat commits.txt >> $GITHUB_OUTPUT
           echo "EOF" >> $GITHUB_OUTPUT
 
+
       - name: Create Fix Issue Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHOR: ${{ github.actor }}
-          COMMITS: ${{ steps.commits.outputs.commits }}
         run: |
           FIX_NUM=${{ github.run_number }}
-
+          
           ISSUE_NUMBER=$(gh issue list --json number,title \
             --jq '.[] | select(.title | test(".*Release.*v?('"${RELEASE_VERSION}"')"; "i")) | .number' | head -n 1)
-
+          
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "Issue с названием 'Release ${RELEASE_VERSION}' не найден"
             exit 1
           fi
-
+          
           BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "$COMMITS")
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "${{ steps.commits.outputs.commits }}")
 
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
