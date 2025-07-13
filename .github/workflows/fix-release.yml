@@ -10,7 +10,7 @@ on:
 
 env:
   YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
-  YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
+  YCR_TOKEN:       ${{ secrets.YCR_TOKEN }}
   RELEASE_VERSION: ${{ github.event.inputs.release_version }}
 
 jobs:
@@ -97,50 +97,52 @@ jobs:
         id: prev_tag
         run: |
           git fetch --tags
-          
-          PREV_TAG=$(git tag --list "v${RELEASE_VERSION}_fix*" | sort -V | grep -v "v${RELEASE_VERSION}_fix${{ github.run_number }}" | tail -1)
-          
+          PREV_TAG=$(git tag --list "v${RELEASE_VERSION}_fix*" \
+            | sort -V \
+            | grep -v "v${RELEASE_VERSION}_fix${{ github.run_number }}" \
+            | tail -1)
           if [ -z "$PREV_TAG" ]; then
             PREV_TAG=$(git describe --tags --abbrev=0 --match "v${RELEASE_VERSION}" 2>/dev/null) || PREV_TAG=""
           fi
-          
-          echo "Selected previous_tag: $PREV_TAG"
           echo "previous_tag=$PREV_TAG" >> $GITHUB_OUTPUT
 
       - name: Get commit list
         id: commits
         run: |
           PREV_TAG="${{ steps.prev_tag.outputs.previous_tag }}"
-          
           echo "**Commits since \`$PREV_TAG\`:**" > commits.txt
-          
+
           if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
-            git log --pretty=format:"- %h %s" "$PREV_TAG"..HEAD >> commits.txt || echo "No commits found." >> commits.txt
+            git log --pretty=format:"- %h %s" "$PREV_TAG"..HEAD >> commits.txt \
+              || echo "No commits found." >> commits.txt
           else
-            echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since the branch start." >> commits.txt
+            echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since branch start." >> commits.txt
             git log --pretty=format:"- %h %s" >> commits.txt
           fi
 
-          echo "commits<<EOF" >> $GITHUB_OUTPUT
+          # Записываем в выходной параметр шага мультистрочный блок с уникальным маркером
+          echo "commits<<__COMMIT_LIST__" >> $GITHUB_OUTPUT
           cat commits.txt >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "__COMMIT_LIST__" >> $GITHUB_OUTPUT
 
       - name: Create Fix Issue Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          AUTHOR: ${{ github.actor }}
+          AUTHOR:   ${{ github.actor }}
         run: |
           FIX_NUM=${{ github.run_number }}
-          
           ISSUE_NUMBER=$(gh issue list --json number,title \
-            --jq '.[] | select(.title | test(".*Release.*v?('"${RELEASE_VERSION}"')"; "i")) | .number' | head -n 1)
-          
+            --jq '.[] | select(.title | test(".*Release.*v?('"${RELEASE_VERSION}"')"; "i")) | .number' \
+            | head -n 1)
+
           if [ -z "$ISSUE_NUMBER" ]; then
-            echo "Issue с названием 'Release ${RELEASE_VERSION}' не найден"
+            echo "Issue with title matching 'Release ${RELEASE_VERSION}' not found."
             exit 1
           fi
-          
-          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "${{ steps.commits.outputs.commits }}")
+
+          BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Date: %s\n👤 Author: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" \
+            "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" \
+            "${{ steps.commits.outputs.commits }}")
 
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
