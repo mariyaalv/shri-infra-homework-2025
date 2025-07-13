@@ -100,7 +100,9 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FIX_NUM: ${{ github.run_number }}
           AUTHOR: ${{ github.actor }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
           DATE: ${{ env.DATE }}
+          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
           PREV_TAG=$(git tag --sort=-creatordate | grep -E "^v${RELEASE_VERSION}(_fix[0-9]+)?$" | grep -v "_fix${FIX_NUM}$" | head -n 1)
           if [ -z "$PREV_TAG" ]; then
@@ -116,5 +118,10 @@ jobs:
             "$RELEASE_VERSION" "$DATE" "$AUTHOR" "${PREV_TAG:-начала истории}" "$COMMIT_LIST" "$IMAGE_URL")
 
           ISSUE_NUMBER=$(gh issue list --search "Release v${RELEASE_VERSION}" --json number --jq '.[0].number')
+
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No issue found matching 'Release v${RELEASE_VERSION}', skipping comment."
+            exit 0
+          fi
 
           gh issue comment $ISSUE_NUMBER --body "$BODY"
