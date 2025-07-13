@@ -111,13 +111,13 @@ jobs:
         id: commits
         run: |
           PREV_TAG="${{ steps.prev_tag.outputs.previous_tag }}"
-          
+
           echo "**Commits since \`$PREV_TAG\`:**" > commits.txt
-          
+
           if git rev-parse "$PREV_TAG" >/dev/null 2>&1; then
             git log --pretty=format:"- %h %s" "$PREV_TAG"..HEAD >> commits.txt || echo "No commits found." >> commits.txt
           else
-            echo "Previous tag $PREV_TAG not found (or no previous tags). Showing all commits since the branch start." >> commits.txt
+            echo "Previous tag $PREV_TAG not found. Showing all commits since branch start." >> commits.txt
             git log --pretty=format:"- %h %s" >> commits.txt
           fi
 
@@ -126,22 +126,24 @@ jobs:
           echo "EOF" >> $GITHUB_OUTPUT
 
 
+
       - name: Create Fix Issue Comment
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           AUTHOR: ${{ github.actor }}
+          COMMITS: ${{ steps.commits.outputs.commits }}
         run: |
           FIX_NUM=${{ github.run_number }}
-          
+
           ISSUE_NUMBER=$(gh issue list --json number,title \
             --jq '.[] | select(.title | test(".*Release.*v?('"${RELEASE_VERSION}"')"; "i")) | .number' | head -n 1)
-          
+
           if [ -z "$ISSUE_NUMBER" ]; then
             echo "Issue с названием 'Release ${RELEASE_VERSION}' не найден"
             exit 1
           fi
-          
+
           BODY=$(printf "🛠 Fix \`#%s\` for Release **v%s**\n\n📅 Дата: %s\n👤 Автор: @%s\n🐳 Docker Image: \`%s/app:%s_fix%s\`\n\n%s" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "${{ steps.commits.outputs.commits }}")
+            "$FIX_NUM" "$RELEASE_VERSION" "$(date -u)" "$AUTHOR" "${YCR_REGISTRY_ID}" "$RELEASE_VERSION" "$FIX_NUM" "$COMMITS")
 
           gh issue comment "$ISSUE_NUMBER" --body "$BODY"
