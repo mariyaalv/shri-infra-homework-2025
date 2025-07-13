@@ -117,10 +117,10 @@ jobs:
           BODY=$(printf "## Fix к релизу %s\n\n**Дата:** %s\n**Автор:** %s\n\n**Коммиты с %s:**\n%s\n\n**Docker:** \`%s\`\n" \
             "$RELEASE_VERSION" "$DATE" "$AUTHOR" "${PREV_TAG:-начала истории}" "$COMMIT_LIST" "$IMAGE_URL")
 
-          ISSUE_NUMBER=$(gh issue list --search "Release v${RELEASE_VERSION}" --json number --jq '.[0].number')
+          ISSUE_NUMBER=$(gh issue list --search "Release ${RELEASE_VERSION}" --json number --jq '.[0].number')
 
           if [ -z "$ISSUE_NUMBER" ]; then
-            echo "No issue found matching 'Release v${RELEASE_VERSION}', skipping comment."
+            echo "No issue found matching 'Release ${RELEASE_VERSION}', skipping comment."
             exit 0
           fi
 
