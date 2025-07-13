@@ -26,34 +26,6 @@ jobs:
   lint-and-test:
     needs: checkout-release-branch
     runs-on: ubuntu-latest
-name: Fix-release Workflow
-
-on:
-  workflow_dispatch:
-    inputs:
-      release_version:
-        description: "Release version"
-        required: true
-        type: string
-
-env:
-  YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
-  YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
-  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
-
-jobs:
-  checkout-release-branch:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout release branch
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          ref: releases/${{ github.event.inputs.release_version }}
-
-  lint-and-test:
-    needs: checkout-release-branch
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
