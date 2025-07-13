@@ -1,0 +1,123 @@
+name: Fix-release Workflow
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_version:
+        description: "Release version"
+        required: true
+        type: string
+      issue_number:
+        description: "Issue number for the fix comment"
+        required: true
+        type: number
+
+env:
+  RELEASE_VERSION: ${{ github.event.inputs.release_version }}
+  YCR_REGISTRY_ID: ${{ secrets.YCR_ID }}
+  YCR_TOKEN: ${{ secrets.YCR_TOKEN }}
+
+jobs:
+  checkout-release-branch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout release branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: releases/${{ github.event.inputs.release_version }}
+
+  lint-and-test:
+    needs: checkout-release-branch
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run test
+
+  build-and-push-docker-image:
+    needs: lint-and-test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: releases/${{ github.event.inputs.release_version }}
+
+      - name: Log in to YCR
+        run: echo "${{ secrets.YCR_TOKEN }}" | docker login --username oauth --password-stdin cr.yandex
+
+      - name: Build Docker image
+        run: |
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${{ github.run_number }}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          docker build -t $IMAGE_NAME -t $IMAGE_LATEST .
+
+      - name: Push Docker image to YCR
+        run: |
+          IMAGE_NAME="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${{ github.run_number }}"
+          IMAGE_LATEST="${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_latest"
+          docker push $IMAGE_NAME
+          docker push $IMAGE_LATEST
+
+  create-fix-tag:
+    needs: build-and-push-docker-image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          ref: releases/${{ github.event.inputs.release_version }}
+
+      - name: Create Fix Tag
+        run: |
+          FIX_NUM=${{ github.run_number }}
+          git tag v${RELEASE_VERSION}_fix${FIX_NUM}
+          git push origin v${RELEASE_VERSION}_fix${FIX_NUM}
+
+  create-fix-issue:
+    needs: create-fix-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: releases/${{ github.event.inputs.release_version }}
+
+      - name: Set DATE
+        run: echo "DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
+
+      - name: Create Fix Issue Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FIX_NUM: ${{ github.run_number }}
+          AUTHOR: ${{ github.actor }}
+          ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          DATE: ${{ env.DATE }}
+        run: |
+          PREV_TAG=$(git tag --sort=-creatordate | grep -E "^v${RELEASE_VERSION}(_fix[0-9]+)?$" | grep -v "_fix${FIX_NUM}$" | head -n 1)
+          if [ -z "$PREV_TAG" ]; then
+            COMMIT_LIST=$(git log --oneline | sed 's/^/- /')
+          else
+            COMMIT_LIST=$(git log ${PREV_TAG}..HEAD --oneline | sed 's/^/- /')
+          fi
+
+          IMAGE_TAG="${RELEASE_VERSION}_fix${FIX_NUM}"
+          IMAGE_URL="cr.yandex/${YCR_REGISTRY_ID}/app:${IMAGE_TAG}"
+
+          BODY=$(printf "## Fix к релизу %s\n\n**Дата:** %s\n**Автор:** %s\n\n**Коммиты с %s:**\n%s\n\n**Docker:** \`%s\`\n" \
+            "$RELEASE_VERSION" "$DATE" "$AUTHOR" "${PREV_TAG:-начала истории}" "$COMMIT_LIST" "$IMAGE_URL")
+
+          gh issue comment $ISSUE_NUMBER --body "$BODY"
