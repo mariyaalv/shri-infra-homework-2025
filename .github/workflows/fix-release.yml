@@ -82,31 +82,31 @@ jobs:
           git push origin v${RELEASE_VERSION}_fix${FIX_NUM}
 
   create-fix-issue:
-  needs: create-fix-tag
-  runs-on: ubuntu-latest
-  steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        fetch-tags: true
-        ref: releases/${{ github.event.inputs.release_version }}
+    needs: create-fix-tag
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          ref: releases/${{ github.event.inputs.release_version }}
 
-    - name: Set DATE
-      run: echo "DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
+      - name: Set DATE
+        run: echo "DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
 
-    - name: Create Fix Issue Comment
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        FIX_NUM: ${{ github.run_number }}
-        AUTHOR: ${{ github.actor }}
-        RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-        DATE: ${{ env.DATE }}
-        YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
-      run: |
-        ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release v'"${RELEASE_VERSION}"'") | .number' | head -n 1)
-        if [ -z "$ISSUE_NUMBER" ]; then
-          echo "No matching issue found for Release v${RELEASE_VERSION}, skipping comment."
-          exit 0
-        fi
-        gh issue comment $ISSUE_NUMBER --body "Fix #${FIX_NUM} for Release **v${RELEASE_VERSION}**\n- Date: ${DATE}\n- Author: @${AUTHOR}\n- Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`"
+      - name: Create Fix Issue Comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FIX_NUM: ${{ github.run_number }}
+          AUTHOR: ${{ github.actor }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          DATE: ${{ env.DATE }}
+          YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
+        run: |
+          ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release v'"${RELEASE_VERSION}"'") | .number' | head -n 1)
+          if [ -z "$ISSUE_NUMBER" ]; then
+            echo "No matching issue found for Release v${RELEASE_VERSION}, skipping comment."
+            exit 0
+          fi
+          gh issue comment $ISSUE_NUMBER --body "Fix #${FIX_NUM} for Release **v${RELEASE_VERSION}**\n- Date: ${DATE}\n- Author: @${AUTHOR}\n- Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`"
