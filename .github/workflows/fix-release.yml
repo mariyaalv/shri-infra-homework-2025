@@ -30,6 +30,8 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+        with:
+          ref: releases/${{ github.event.inputs.release_version }}
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -92,35 +94,37 @@ jobs:
           fetch-tags: true
           ref: releases/${{ github.event.inputs.release_version }}
 
-      - name: Set DATE
-        run: echo "DATE=$(date -u +'%Y-%m-%d')" >> $GITHUB_ENV
+      - name: Get previous tag
+        id: prev_tag
+        run: |
+          git fetch --tags
+          PREV=$(git tag --sort=-creatordate | grep -E "^(v)?${RELEASE_VERSION}(_fix[0-9]+)?$" | head -n 2 | tail -n 1 || echo "")
+          echo "tag=$PREV" >> $GITHUB_OUTPUT
 
-      - name: Create Fix Issue Comment
+      - name: Get commit list
+        run: |
+          if [ -z "${{ steps.prev_tag.outputs.tag }}" ]; then
+            echo "**Commits (all since beginning):**" > commits.txt
+            git log --oneline >> commits.txt || echo "No commits" >> commits.txt
+          else
+            echo "**Commits since \`${{ steps.prev_tag.outputs.tag }}\`:**" > commits.txt
+            git log ${{ steps.prev_tag.outputs.tag }}..HEAD --oneline >> commits.txt || echo "No new commits" >> commits.txt
+          fi
+
+      - name: Create or Comment on GitHub Issue
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FIX_NUM: ${{ github.run_number }}
+          FIX_NUM: ${{ steps.fix_number.outputs.fix_number || github.run_number }}
           AUTHOR: ${{ github.actor }}
-          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
-          DATE: ${{ env.DATE }}
+          RELEASE_VERSION: ${{ github.event.inputs.release_version }}
           YCR_REGISTRY_ID: ${{ env.YCR_REGISTRY_ID }}
         run: |
-          ISSUE_NUMBER=$(gh issue list --json number,title --jq '.[] | select(.title=="Release '"${RELEASE_VERSION}"'") | .number' | head -n 1)
-          if [ -z "$ISSUE_NUMBER" ]; then
-            echo "No matching issue found for Release ${RELEASE_VERSION}, skipping comment."
-            exit 0
-          fi
-
-          PREV_TAG=$(git tag --sort=-creatordate | grep -E "^v${RELEASE_VERSION}(_fix[0-9]+)?$" | head -n 2 | tail -n 1)
-
-          if [ -z "$PREV_TAG" ]; then
-            echo "No previous tag found, showing all commits"
-            COMMIT_LIST=$(git log --pretty=format:"- %s (@%an)" -n 10)
+          ISSUE_NUMBER=$(gh issue list --limit 1 --search "Release ${RELEASE_VERSION} in:title" --json number --jq '.[0].number' || echo "")
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue comment "$ISSUE_NUMBER" \
+              --body "$(echo -e "Fix \`#${FIX_NUM}\` for Release **${RELEASE_VERSION}**\n Date: $(date -u)\n Author: @${AUTHOR}\n Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`\n\n"; cat commits.txt)"
           else
-            echo "Previous tag found: $PREV_TAG"
-            COMMIT_LIST=$(git log ${PREV_TAG}..HEAD --pretty=format:"- %s (@%an)" -n 10)
+            gh issue create \
+              --title "Release ${RELEASE_VERSION}" \
+              --body "$(echo -e "Fix \`#${FIX_NUM}\` for Release **${RELEASE_VERSION}**\n Date: $(date -u)\n Author: @${AUTHOR}\n Docker Image: \`${YCR_REGISTRY_ID}/app:${RELEASE_VERSION}_fix${FIX_NUM}\`\n\n"; cat commits.txt)"
           fi
-
-          BODY=$(printf "Fix #%s for Release **%s**\n- Дата: %s\n- Автор: @%s\n- Docker Image: \`%s/app:%s_fix%s\`\n\n**Коммиты:**\n%s\n" \
-            "$FIX_NUM" "$RELEASE_VERSION" "$DATE" "$AUTHOR" "$YCR_REGISTRY_ID" "$RELEASE_VERSION" "$FIX_NUM" "$COMMIT_LIST")
-
-          gh issue comment "$ISSUE_NUMBER" --body "$BODY"
