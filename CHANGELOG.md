@@ -1,3 +1,21 @@
+# 9
+
+- 4281b70 Merge pull request #49 from Garajnik/main
+- 7df0415 Change store name
+- 8d6de36 Merge pull request #48 from mariyaalv/revert-47-main
+- d52c450 Revert "Change name"
+- 8635a36 Merge pull request #47 from Garajnik/main
+- c91619d Change name
+- 5b316f9 Merge pull request #46 from mariyaalv/releases/7
+- e1ffb22 публичный апи
+- d286921 Merge pull request #45 from mariyaalv/releases/7
+- 4eea471 публичный апи
+- dc04700 Merge pull request #43 from mariyaalv/releases/7
+- 01cfee5 Merge pull request #42 from mariyaalv/releases/7
+- 8ec9e5a Merge pull request #41 from mariyaalv/releases/7
+- 9e3d1e1 Merge pull request #40 from mariyaalv/releases/7
+- 7264887 Merge pull request #39 from mariyaalv/releases/7
+
 # 7
 
 - 4092aa6 Merge pull request #14 from mariyaalv/workflow/fix-release
